@@ -15,39 +15,41 @@ import (
 
 // ensureConfig checks whether .envsync.yaml exists. If it doesn't and stdin
 // is a TTY, it runs the interactive first-run setup and writes the config.
-// Returns (true, nil) if setup ran and succeeded — the caller should reload
-// config and continue. Returns (false, nil) if config already exists.
-// Returns (false, err) if setup was cancelled or failed — the caller should
-// stop cleanly without printing another error.
-func ensureConfig(s streams, opts *rootOptions) (setupRan bool, cfg config.Config, err error) {
+// Returns (setupRan, cfg, password, err).
+// password is non-empty only when setup ran for a KeePass provider — the
+// caller can use it to pre-seed the adapter and avoid a second prompt.
+func ensureConfig(s streams, opts *rootOptions) (setupRan bool, cfg config.Config, password string, err error) {
 	cfg, err = loadConfig(opts)
 	if err != nil {
-		return false, config.Config{}, err
+		return false, config.Config{}, "", err
 	}
 
 	_, statErr := os.Stat(cfg.ConfigFile)
 	isInteractive := term.IsTerminal(int(os.Stdin.Fd()))
 	if !os.IsNotExist(statErr) || !isInteractive {
 		// Config exists, or we're not interactive — nothing to do.
-		return false, cfg, nil
+		return false, cfg, "", nil
 	}
 
-	if err := runFirstTimeSetup(s, cfg); err != nil {
+	password, err = runFirstTimeSetup(s, cfg)
+	if err != nil {
 		// Setup cancelled or failed — message already printed.
-		return false, config.Config{}, err
+		return false, config.Config{}, "", err
 	}
 
 	// Reload config so callers get the freshly written values.
 	cfg, err = loadConfig(opts)
 	if err != nil {
-		return false, config.Config{}, err
+		return false, config.Config{}, "", err
 	}
-	return true, cfg, nil
+	return true, cfg, password, nil
 }
 
 // runFirstTimeSetup prompts the user for provider preferences and writes
 // .envsync.yaml. Nothing is written to disk until all inputs are validated.
-func runFirstTimeSetup(s streams, cfg config.Config) error {
+// Returns the KeePass master password if one was collected, so callers can
+// reuse it without prompting again.
+func runFirstTimeSetup(s streams, cfg config.Config) (password string, err error) {
 	reader := bufio.NewReader(os.Stdin)
 
 	fmt.Fprintln(s.stdout, "No .envsync.yaml found. Let's set up dotenv-sync.")
@@ -63,7 +65,7 @@ func runFirstTimeSetup(s streams, cfg config.Config) error {
 
 	if providerInput != "bitwarden" && providerInput != "keepass" {
 		fmt.Fprintf(s.stdout, "Setup failed: unknown provider %q — must be bitwarden or keepass. Please run again.\n", providerInput)
-		return fmt.Errorf("setup cancelled")
+		return "", fmt.Errorf("setup cancelled")
 	}
 
 	var dbPath, groupName string
@@ -74,12 +76,12 @@ func runFirstTimeSetup(s streams, cfg config.Config) error {
 		dbPath = strings.TrimSpace(dbPath)
 		if dbPath == "" {
 			fmt.Fprintln(s.stdout, "Setup failed: KeePass database path cannot be empty. Please run again.")
-			return fmt.Errorf("setup cancelled")
+			return "", fmt.Errorf("setup cancelled")
 		}
 
 		if _, err := os.Stat(dbPath); err != nil {
 			fmt.Fprintf(s.stdout, "Setup failed: database file not found at %q. Please run again.\n", dbPath)
-			return fmt.Errorf("setup cancelled")
+			return "", fmt.Errorf("setup cancelled")
 		}
 
 		fmt.Fprint(s.stdout, "Group name for env vars (default: dotenv): ")
@@ -96,13 +98,14 @@ func runFirstTimeSetup(s streams, cfg config.Config) error {
 		fmt.Fprintln(os.Stderr)
 		if err != nil {
 			fmt.Fprintln(s.stdout, "Setup failed: could not read master password. Please run again.")
-			return fmt.Errorf("setup cancelled")
+			return "", fmt.Errorf("setup cancelled")
 		}
 		client.Password = strings.TrimSpace(string(pw))
+		password = client.Password
 
 		if _, err := client.ListGroup(context.Background(), dbPath, groupName); err != nil {
 			fmt.Fprintf(s.stdout, "Setup failed: group %q not found in %s. Please run again.\n", groupName, dbPath)
-			return fmt.Errorf("setup cancelled")
+			return "", fmt.Errorf("setup cancelled")
 		}
 	}
 
@@ -117,11 +120,11 @@ func runFirstTimeSetup(s streams, cfg config.Config) error {
 	}
 
 	if err := os.WriteFile(cfg.ConfigFile, []byte(sb.String()), 0o600); err != nil {
-		return report.NewAppError("E006", report.ExitOperational, "config file could not be written", "setup could not create .envsync.yaml", "check file permissions and retry", err)
+		return "", report.NewAppError("E006", report.ExitOperational, "config file could not be written", "setup could not create .envsync.yaml", "check file permissions and retry", err)
 	}
 
 	fmt.Fprintln(s.stdout, "")
 	fmt.Fprintln(s.stdout, "WRITTEN "+cfg.ConfigFile)
 	fmt.Fprintln(s.stdout, "")
-	return nil
+	return password, nil
 }

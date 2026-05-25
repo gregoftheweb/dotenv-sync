@@ -23,9 +23,8 @@ After scaffold, open KeePassXC, fill in the real secret values, then run ds sync
 
 Only supported when provider is keepass.`,
 		RunE: func(cmd *cobra.Command, args []string) error {
-			_, cfg, err := ensureConfig(s, opts)
+			_, cfg, setupPassword, err := ensureConfig(s, opts)
 			if err != nil {
-				// Setup was cancelled or failed — exit cleanly.
 				return nil
 			}
 
@@ -67,9 +66,12 @@ Only supported when provider is keepass.`,
 				return nil
 			}
 
-			// Build the KeePass client. ensurePassword will prompt once.
+			// Build the adapter. If setup just ran, reuse the password already
+			// collected so the user is not prompted a second time.
 			adapter := keepass.NewAdapter(cfg)
-			if err := adapter.EnsurePassword(cmd.Context()); err != nil {
+			if setupPassword != "" {
+				adapter.SetPassword(setupPassword)
+			} else if err := adapter.EnsurePassword(cmd.Context()); err != nil {
 				return report.NewAppError("E003", report.ExitOperational,
 					"KeePass master password could not be read",
 					"scaffold cannot create entries without vault access",

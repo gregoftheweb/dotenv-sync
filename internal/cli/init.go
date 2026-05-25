@@ -15,13 +15,11 @@ func newInitCommand(s streams, opts *rootOptions) *cobra.Command {
 		Use:   "init",
 		Short: "Generate .env.example from .env, with first-run provider setup",
 		RunE: func(cmd *cobra.Command, args []string) error {
-			setupRan, cfg, err := ensureConfig(s, opts)
+			setupRan, cfg, _, err := ensureConfig(s, opts)
 			if err != nil {
-				// Setup was cancelled or failed — exit cleanly.
 				return nil
 			}
 			if setupRan {
-				// Config just written — tell the user what to do next and stop.
 				fmt.Fprintln(s.stdout, "Run 'ds sync' to populate your .env file.")
 				return nil
 			}

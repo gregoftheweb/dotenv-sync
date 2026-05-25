@@ -152,6 +152,14 @@ func (a *Adapter) ResolveMany(ctx context.Context, refs map[string]string) (map[
 	return results, nil
 }
 
+// SetPassword pre-seeds the master password without prompting.
+// Used by ds scaffold when the password was already collected during first-run setup.
+func (a *Adapter) SetPassword(password string) {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	a.client.Password = password
+}
+
 // EnsurePassword is the public form of ensurePassword, used by ds scaffold
 // which needs to prompt for the password before making multiple CLI calls.
 func (a *Adapter) EnsurePassword(ctx context.Context) error {
