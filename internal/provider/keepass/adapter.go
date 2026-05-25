@@ -152,7 +152,21 @@ func (a *Adapter) ResolveMany(ctx context.Context, refs map[string]string) (map[
 	return results, nil
 }
 
-// ensurePassword prompts the user for the KeePass master password exactly once
+// EnsurePassword is the public form of ensurePassword, used by ds scaffold
+// which needs to prompt for the password before making multiple CLI calls.
+func (a *Adapter) EnsurePassword(ctx context.Context) error {
+	return a.ensurePassword(ctx)
+}
+
+// CreateEntry creates a blank entry in the KeePass group for the given key.
+// Returns ErrEntryExists if the entry already exists — callers should skip
+// rather than treat this as an error.
+func (a *Adapter) CreateEntry(ctx context.Context, key string) error {
+	if err := a.ensurePassword(ctx); err != nil {
+		return err
+	}
+	return a.client.CreateEntry(ctx, a.cfg.KeePassDatabase, a.cfg.KeePassGroup, key, "")
+}
 // per process run. Subsequent calls return immediately because the password is
 // already stored in the client.
 //

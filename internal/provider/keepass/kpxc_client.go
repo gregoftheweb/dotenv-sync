@@ -14,6 +14,9 @@ var ErrBinaryMissing = errors.New("keepassxc-cli binary missing")
 // ErrItemNotFound is returned when the requested entry does not exist in the database.
 var ErrItemNotFound = errors.New("keepassxc-cli entry not found")
 
+// ErrEntryExists is returned when trying to create an entry that already exists.
+var ErrEntryExists = errors.New("keepassxc-cli entry already exists")
+
 // KPXCClient wraps the keepassxc-cli binary.
 // It holds the path to the binary and the master password for the database.
 // The password is prompted once by the Adapter and stored here for the
@@ -102,6 +105,53 @@ func (c *KPXCClient) run(ctx context.Context, databasePath string, args ...strin
 		return "", fmt.Errorf("%s", text)
 	}
 	return text, nil
+}
+
+// CreateEntry creates a new entry in the database under the given group.
+// The entry title is set to entryName and the password field is left blank —
+// the user fills in the real value in KeePassXC after scaffolding.
+//
+// Returns ErrEntryExists if the entry already exists — callers should skip
+// rather than treat this as an error.
+//
+// Equivalent shell command:
+//
+//	echo "<password>" | keepassxc-cli add -p <database> <group>/<entryName>
+func (c *KPXCClient) CreateEntry(ctx context.Context, databasePath, group, entryName, entryPassword string) error {
+	if _, err := exec.LookPath(c.Bin); err != nil {
+		return ErrBinaryMissing
+	}
+
+	// keepassxc-cli gives the same "Could not create entry" message for both
+	// "already exists" and genuine failures, so we can't distinguish from the
+	// output alone. Instead, check existence first with a ListGroup call.
+	entries, err := c.ListGroup(ctx, databasePath, group)
+	if err != nil {
+		return err
+	}
+	for _, e := range entries {
+		if e == entryName {
+			return ErrEntryExists
+		}
+	}
+
+	entryPath := group + "/" + entryName
+	// keepassxc-cli add -p reads two lines from stdin:
+	//   line 1: database master password
+	//   line 2: new entry password (prompted by -p flag)
+	input := c.Password + "\n" + entryPassword + "\n"
+
+	cmd := exec.CommandContext(ctx, c.Bin, "add", "-p", databasePath, entryPath)
+	cmd.Stdin = strings.NewReader(input)
+	out, err := cmd.CombinedOutput()
+	text := strings.TrimSpace(string(out))
+	if err != nil {
+		if text == "" {
+			return fmt.Errorf("keepassxc-cli add failed: %w", err)
+		}
+		return fmt.Errorf("%s", text)
+	}
+	return nil
 }
 
 // parsePasswordField scans the output of `keepassxc-cli show -s` and
