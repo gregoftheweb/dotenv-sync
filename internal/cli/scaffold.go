@@ -25,7 +25,7 @@ Only supported when provider is keepass.`,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			_, cfg, setupPassword, err := ensureConfig(s, opts)
 			if err != nil {
-				return nil
+				return err
 			}
 
 			// scaffold is KeePass-only.

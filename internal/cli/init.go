@@ -17,7 +17,7 @@ func newInitCommand(s streams, opts *rootOptions) *cobra.Command {
 		RunE: func(cmd *cobra.Command, args []string) error {
 			setupRan, cfg, _, err := ensureConfig(s, opts)
 			if err != nil {
-				return nil
+				return err
 			}
 			if setupRan {
 				fmt.Fprintln(s.stdout, "Run 'ds sync' to populate your .env file.")

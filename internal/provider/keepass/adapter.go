@@ -175,6 +175,8 @@ func (a *Adapter) CreateEntry(ctx context.Context, key string) error {
 	}
 	return a.client.CreateEntry(ctx, a.cfg.KeePassDatabase, a.cfg.KeePassGroup, key, "")
 }
+
+// ensurePassword prompts the user for the KeePass master password exactly once
 // per process run. Subsequent calls return immediately because the password is
 // already stored in the client.
 //
